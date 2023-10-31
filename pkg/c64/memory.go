@@ -59,8 +59,8 @@ type Memory interface {
 }
 
 type C64MemoryMap struct {
-	ram    [65535]byte
-	rom    [65535]byte
+	ram    [65536]byte
+	rom    [65536]byte
 	logger slog.Logger
 }
 
@@ -69,9 +69,9 @@ func NewC64Memory(logger slog.Logger) *C64MemoryMap {
 	m.logger = *logger.With("Component", "Memory")
 	// setup c64 default roms
 	m.Write(CpuPortRegister, LORAM|HIRAM|CHAREN)
-	m.LoadRom("roms/basic.901226-01.bin", BasicRomAddr)
-	m.LoadRom("roms/kernal.901227-03.bin", KernalRomAddr)
-	m.LoadRom("roms/characters.901225-01.bin", CharsRomAddr)
+	m.LoadRom("test/roms/basic.901226-01.bin", BasicRomAddr, false)
+	m.LoadRom("test/roms/kernal.901227-03.bin", KernalRomAddr, false)
+	m.LoadRom("test/roms/characters.901225-01.bin", CharsRomAddr, false)
 	return m
 }
 
@@ -112,7 +112,7 @@ func (m *C64MemoryMap) Read(addr uint16) byte {
 }
 
 func (m *C64MemoryMap) ReadWord(addr uint16) uint16 {
-	return uint16(m.Read(addr)) | (uint16(m.Read(addr)) << 8)
+	return uint16(m.Read(addr)) | (uint16(m.Read(addr+1)) << 8)
 }
 
 // https://web.archive.org/web/20230527235630/https://www.c64-wiki.com/wiki/Zeropage
@@ -120,7 +120,7 @@ func (m *C64MemoryMap) RomBankSwitch(v byte) {
 	m.logger.Debug("RomBankSwitch", "data", v)
 }
 
-func (m *C64MemoryMap) LoadRom(path string, addr uint16) error {
+func (m *C64MemoryMap) LoadRom(path string, addr uint16, ram bool) error {
 	file, err := os.Open(path)
 	if err != nil {
 		m.logger.Error("LoadRom Can't open file", "path", path, "addr", addr, "err", err)
@@ -134,7 +134,11 @@ func (m *C64MemoryMap) LoadRom(path string, addr uint16) error {
 	}
 
 	for i := 0; i < len(byteContent); i++ {
-		m.rom[addr+uint16(i)] = byteContent[i]
+		if ram {
+			m.ram[addr+uint16(i)] = byteContent[i]
+		} else {
+			m.rom[addr+uint16(i)] = byteContent[i]
+		}
 	}
 	return nil
 }

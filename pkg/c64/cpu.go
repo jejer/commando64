@@ -22,7 +22,7 @@ const (
 	FlagI
 	FlagD
 	FlagB
-	_
+	_ // unused, always set 1
 	FlagV
 	FlagN
 
@@ -31,6 +31,7 @@ const (
 
 	ResetVector uint16 = 0xfffc
 	IRQVector   uint16 = 0xfffe
+	NMIVector   uint16 = 0xfffa
 )
 
 type CPU struct {
@@ -67,6 +68,26 @@ func (cpu *CPU) Step() {
 	cpu.cycles += uint64(instruction.cycles)
 }
 
+func (cpu *CPU) IRQ() {
+	if !cpu.hasFlag(FlagI) {
+		return
+	}
+	cpu.push(uint8((cpu.pc >> 8) & 0xff))
+	cpu.push(uint8(cpu.pc & 0xff))
+	cpu.push(cpu.p & 0xef) // push flags with bcf cleared
+	cpu.pc = cpu.mem.ReadWord(IRQVector)
+	cpu.setFlag(FlagI, true)
+	cpu.cycles += 7
+}
+
+func (cpu *CPU) NMI() {
+	cpu.push(uint8((cpu.pc >> 8) & 0xff))
+	cpu.push(uint8(cpu.pc & 0xff))
+	cpu.push(cpu.p & 0xef) // push flags with bcf cleared
+	cpu.pc = cpu.mem.ReadWord(NMIVector)
+	cpu.cycles += 7
+}
+
 func (cpu *CPU) fetchOP() byte {
 	v := cpu.mem.Read(cpu.pc)
 	cpu.pc++
@@ -82,14 +103,14 @@ func (cpu *CPU) fetchWord() uint16 {
 // sp is in uint8 range, overflow/underflow is not possiable
 func (cpu *CPU) push(v byte) {
 	cpu.logger.Debug("push", "current sp", cpu.sp, "value", v)
-	cpu.mem.Write(StackHigh-uint16(cpu.sp), v)
-	cpu.sp++
+	cpu.mem.Write(StackLow+uint16(cpu.sp), v)
+	cpu.sp--
 }
 
 func (cpu *CPU) pop() byte {
 	cpu.logger.Debug("pop", "current sp", cpu.sp)
-	cpu.sp--
-	v := cpu.mem.Read(StackHigh - uint16(cpu.sp))
+	cpu.sp++
+	v := cpu.mem.Read(StackLow + uint16(cpu.sp))
 	return v
 }
 
@@ -99,6 +120,7 @@ func (cpu *CPU) setFlag(flag uint8, v bool) {
 	} else {
 		cpu.p &^= flag
 	}
+	cpu.p |= 0x20
 }
 
 func (cpu *CPU) hasFlag(flag uint8) bool {
@@ -152,7 +174,7 @@ func (cpu *CPU) loadByte(mode AddressingMode) (byte, uint16) {
 		addr = cpu.fetchWord()
 		addr = cpu.mem.ReadWord(addr)
 	case Relative:
-		addr = cpu.pc + uint16(cpu.fetchOP())
+		addr = cpu.pc + uint16(int8(cpu.fetchOP())) // offset could be nagative
 	default:
 		cpu.logger.Error("unsupported addressing mode", "mode", mode)
 	}

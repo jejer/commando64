@@ -191,9 +191,11 @@ var Instructions = map[byte]Instruction{
 func BRK(cpu *CPU, mode AddressingMode) error {
 	cpu.push(uint8(((cpu.pc + 1) >> 8) & 0xff))
 	cpu.push(uint8((cpu.pc + 1) & 0xff))
+	cpu.setFlag(FlagB, false) // BRK push the bcf flag active
 	cpu.push(cpu.p)
 	cpu.pc = cpu.mem.ReadWord(IRQVector)
-	cpu.p |= FlagI | FlagB
+	cpu.setFlag(FlagI, true)
+	cpu.setFlag(FlagB, true)
 	return nil
 }
 
@@ -205,7 +207,7 @@ func ORA(cpu *CPU, mode AddressingMode) error {
 	v, _ := cpu.loadByte(mode)
 	cpu.a = cpu.a | v
 	cpu.setFlag(FlagZ, cpu.a == 0)
-	cpu.setFlag(FlagZ, cpu.a&0x80 != 0)
+	cpu.setFlag(FlagN, cpu.a&0x80 != 0)
 	return nil
 }
 
@@ -245,6 +247,7 @@ func ASL(cpu *CPU, mode AddressingMode) error {
 // N Z C I D V
 // _ _ _ _ _ _
 func PHP(cpu *CPU, mode AddressingMode) error {
+	cpu.setFlag(FlagB, true) // PHP push the bcf flag active
 	cpu.push(cpu.p)
 	return nil
 }
@@ -486,8 +489,8 @@ func CLI(cpu *CPU, mode AddressingMode) error {
 //	_ _ _ _ _ _
 func RTS(cpu *CPU, mode AddressingMode) error {
 	pc := uint16(cpu.pop())
-	pc = uint16(cpu.pop()<<8) + pc
-	cpu.pc = pc
+	pc = uint16(cpu.pop())<<8 + pc
+	cpu.pc = pc + 1
 	return nil
 }
 
