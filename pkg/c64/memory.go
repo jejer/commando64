@@ -111,6 +111,10 @@ func (m *C64MemoryMap) Read(addr uint16) byte {
 	// }
 }
 
+func (m *C64MemoryMap) ReadWord(addr uint16) uint16 {
+	return uint16(m.Read(addr)) | (uint16(m.Read(addr)) << 8)
+}
+
 // https://web.archive.org/web/20230527235630/https://www.c64-wiki.com/wiki/Zeropage
 func (m *C64MemoryMap) RomBankSwitch(v byte) {
 	m.logger.Debug("RomBankSwitch", "data", v)
