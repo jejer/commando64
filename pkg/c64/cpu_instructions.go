@@ -242,8 +242,8 @@ func ASL(cpu *CPU, mode AddressingMode) error {
 // N Z C I D V
 // _ _ _ _ _ _
 func PHP(cpu *CPU, mode AddressingMode) error {
-	cpu.setFlag(FlagB, true) // PHP push the bcf flag active
-	cpu.push(cpu.p)
+	// cpu.setFlag(FlagB, true) // PHP push the bcf flag active
+	cpu.push(cpu.p | FlagB | FlagConstant)
 	return nil
 }
 
