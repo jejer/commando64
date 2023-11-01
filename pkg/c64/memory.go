@@ -1,6 +1,7 @@
 package c64
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log/slog"
 	"os"
@@ -67,11 +68,6 @@ type C64MemoryMap struct {
 func NewC64Memory(logger slog.Logger) *C64MemoryMap {
 	m := &C64MemoryMap{}
 	m.logger = *logger.With("Component", "Memory")
-	// setup c64 default roms
-	m.Write(CpuPortRegister, LORAM|HIRAM|CHAREN)
-	m.LoadRom("test/roms/basic.901226-01.bin", BasicRomAddr, false)
-	m.LoadRom("test/roms/kernal.901227-03.bin", KernalRomAddr, false)
-	m.LoadRom("test/roms/characters.901225-01.bin", CharsRomAddr, false)
 	return m
 }
 
@@ -117,19 +113,19 @@ func (m *C64MemoryMap) ReadWord(addr uint16) uint16 {
 
 // https://web.archive.org/web/20230527235630/https://www.c64-wiki.com/wiki/Zeropage
 func (m *C64MemoryMap) RomBankSwitch(v byte) {
-	m.logger.Debug("RomBankSwitch", "data", v)
+	m.logger.Info("RomBankSwitch", "data", fmt.Sprintf("%08b", v))
 }
 
 func (m *C64MemoryMap) LoadRom(path string, addr uint16, ram bool) error {
 	file, err := os.Open(path)
 	if err != nil {
-		m.logger.Error("LoadRom Can't open file", "path", path, "addr", addr, "err", err)
+		m.logger.Error("LoadRom Can't open file", "path", path, "addr", fmt.Sprintf("%08x", addr), "err", err)
 		return err
 	}
 
 	byteContent, err := ioutil.ReadAll(file)
 	if err != nil {
-		m.logger.Error("LoadRom Can't read file", "path", path, "addr", addr, "err", err)
+		m.logger.Error("LoadRom Can't read file", "path", path, "addr", fmt.Sprintf("%08x", addr), "err", err)
 		return err
 	}
 
@@ -170,16 +166,17 @@ func (m *C64MemoryMap) GetAddrBandMode(addr uint16) BandMode {
 	charen := ((m.ram[CpuPortRegister] & CHAREN) != 0) // char
 
 	// TODO: support cartridge and expansion cards
+	page := addr & 0xff00
 	switch {
-	case addr >= KernalStartPage && addr <= KernalEndPage: // 0xe000 ~ 0xffff
+	case page >= KernalStartPage && page <= KernalEndPage: // 0xe000 ~ 0xffff
 		if hiram {
 			return BandModeROM
 		}
-	case addr >= BasicStartPage && addr <= BasicEndPage: // 0xa000 ~ 0xbfff
+	case page >= BasicStartPage && page <= BasicEndPage: // 0xa000 ~ 0xbfff
 		if loram && hiram {
 			return BandModeROM
 		}
-	case addr >= CharStartPage && addr <= CharEndPage: // 0xd000 ~ 0xdfff
+	case page >= CharStartPage && page <= CharEndPage: // 0xd000 ~ 0xdfff
 		if charen && (loram || hiram) {
 			return BandModeIO
 		} else if !charen && (loram || hiram) {

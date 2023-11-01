@@ -1,7 +1,10 @@
 package c64
 
 import (
+	"fmt"
 	"log/slog"
+	"reflect"
+	"runtime"
 )
 
 const (
@@ -47,18 +50,33 @@ func NewCPU(logger slog.Logger, m *C64MemoryMap) *CPU {
 	// https://www.c64-wiki.com/index.php/Reset_(Process)
 	return &CPU{
 		mem:    m,
-		pc:     ResetVector,
+		pc:     m.ReadWord(ResetVector),
 		cycles: 0x6,
 		logger: *logger.With("Component", "CPU"),
 	}
 }
 
+func (cpu *CPU) Reset() {
+	cpu.a, cpu.x, cpu.y, cpu.p, cpu.sp = 0, 0, 0, 0, 0
+	cpu.pc = cpu.mem.ReadWord(ResetVector)
+	cpu.cycles = 0x6
+}
+
+var CPU_DEBUG_PRINT = 0
+
 func (cpu *CPU) Step() {
-	cpu.logger.Debug("Step", "PC", cpu.pc)
-
+	if cpu.pc == 0xff5e {
+		CPU_DEBUG_PRINT = 1
+	}
 	instraCode := cpu.fetchOP()
-
 	instruction, exist := Instructions[instraCode]
+	if CPU_DEBUG_PRINT == 1 {
+		CPU_DEBUG_PRINT = 2
+		cpu.logger.Debug(`PC  |   OP    |A |X |Y |P NV.BDIZC|SP|SD| `)
+	}
+	if CPU_DEBUG_PRINT == 2 {
+		cpu.logger.Debug(fmt.Sprintf("%04x|%s%02x%02x%02x|%02x|%02x|%02x|%02x%08b|%02x|%02x| ", cpu.pc, runtime.FuncForPC(reflect.ValueOf(instruction.fn).Pointer()).Name()[36:39], cpu.mem.Read(cpu.pc-1), cpu.mem.Read(cpu.pc), cpu.mem.Read(cpu.pc+1), cpu.a, cpu.x, cpu.y, cpu.p, cpu.p, cpu.sp, cpu.mem.ram[StackLow+uint16(cpu.sp)+1]))
+	}
 	if !exist {
 		cpu.logger.Error("Instruction Unsupported", "instruction", instruction)
 	}
@@ -107,13 +125,13 @@ func (cpu *CPU) fetchWord() uint16 {
 
 // sp is in uint8 range, overflow/underflow is not possiable
 func (cpu *CPU) push(v byte) {
-	cpu.logger.Debug("push", "current sp", cpu.sp, "value", v)
+	// cpu.logger.Debug("push", "current sp", cpu.sp, "value", v)
 	cpu.mem.Write(StackLow+uint16(cpu.sp), v)
 	cpu.sp--
 }
 
 func (cpu *CPU) pop() byte {
-	cpu.logger.Debug("pop", "current sp", cpu.sp)
+	// cpu.logger.Debug("pop", "current sp", cpu.sp)
 	cpu.sp++
 	v := cpu.mem.Read(StackLow + uint16(cpu.sp))
 	return v
@@ -133,7 +151,7 @@ func (cpu *CPU) hasFlag(flag uint8) bool {
 }
 
 func (cpu *CPU) loadByte(mode AddressingMode) (byte, uint16) {
-	cpu.logger.Debug("loadByte", "mode", mode)
+	// cpu.logger.Debug("loadByte", "mode", mode)
 
 	var v byte = 0
 	var addr uint16 = 0
