@@ -5,22 +5,6 @@ import (
 	"testing"
 )
 
-// var cpu *CPU
-
-// func TestMain(m *testing.M) {
-// 	mem := NewC64Memory(*slog.Default())
-// 	cpu = NewCPU(*slog.Default(), mem)
-// 	os.Exit(m.Run())
-// }
-
-// func TestPHP(t *testing.T) {
-// 	cpu.p = 0xee
-// 	PHP(cpu, Implied)
-// 	if 1 == 1 {
-// 		t.Errorf("Wrong PC value after RTS operation, got: %d, want: %d.", cpu.pc, 101)
-// 	}
-// }
-
 func TestCPU(t *testing.T) {
 	// opts := &slog.HandlerOptions{
 	// 	Level: slog.LevelDebug,

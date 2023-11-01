@@ -189,13 +189,8 @@ var Instructions = map[byte]Instruction{
 // N Z C I D V
 // _ _ _ 1 _ _
 func BRK(cpu *CPU, mode AddressingMode) error {
-	cpu.push(uint8(((cpu.pc + 1) >> 8) & 0xff))
-	cpu.push(uint8((cpu.pc + 1) & 0xff))
-	cpu.setFlag(FlagB, false) // BRK push the bcf flag active
-	cpu.push(cpu.p)
-	cpu.pc = cpu.mem.ReadWord(IRQVector)
-	cpu.setFlag(FlagI, true)
-	cpu.setFlag(FlagB, true)
+	cpu.pc++
+	cpu.interrupt(true, IRQVector)
 	return nil
 }
 
@@ -308,9 +303,9 @@ func AND(cpu *CPU, mode AddressingMode) error {
 // M7 * _ _ _ M6
 func BIT(cpu *CPU, mode AddressingMode) error {
 	v, _ := cpu.loadByte(mode)
+	cpu.setFlag(FlagV, v&0x40 != 0)
 	cpu.setFlag(FlagZ, v&cpu.a == 0)
 	cpu.setFlag(FlagN, v&0x80 != 0)
-	cpu.setFlag(FlagV, v&0x40 == 0)
 	return nil
 }
 
@@ -389,7 +384,7 @@ func SEC(cpu *CPU, mode AddressingMode) error {
 func RTI(cpu *CPU, mode AddressingMode) error {
 	cpu.p = cpu.pop()
 	pc := uint16(cpu.pop())
-	pc = uint16(cpu.pop()<<8) + pc
+	pc = uint16(cpu.pop())<<8 + pc
 	cpu.pc = pc
 	return nil
 }
@@ -500,32 +495,45 @@ func RTS(cpu *CPU, mode AddressingMode) error {
 // * * * _ _ *
 func ADC(cpu *CPU, mode AddressingMode) error {
 	v, _ := cpu.loadByte(mode)
+	acc := uint16(cpu.a)
+	add := uint16(v)
 	var ans uint16 = 0
-	var cf uint16 = 0
+	var carry uint16 = 0
 	if cpu.hasFlag(FlagC) {
-		cf = 1
+		carry = 1
 	}
 
 	if cpu.hasFlag(FlagD) {
 		// decimal mode
-		ans = uint16(cpu.a&0x0f) + uint16(v&0x0f) + cf
-		if ans > 0x09 {
-			ans += 0x6
+		lo := (acc & 0x0f) + (add & 0x0f) + carry
+
+		var carrylo uint16
+		if lo >= 0x0a {
+			carrylo = 0x10
+			lo -= 0x0a
 		}
-		ans += uint16(cpu.a&0xf0) + uint16(v&0xf0)
-		if (ans & 0x1f0) > 0x90 {
-			ans += 0x60
+
+		hi := (acc & 0xf0) + (add & 0xf0) + carrylo
+
+		if hi >= 0xa0 {
+			cpu.setFlag(FlagC, true)
+			hi -= 0xa0
+		} else {
+			cpu.setFlag(FlagC, false)
 		}
+
+		ans = hi | lo
+
+		cpu.setFlag(FlagV, ((acc^ans)&0x80) != 0 && ((acc^add)&0x80) == 0)
 	} else {
-		ans = uint16(cpu.a) + uint16(v) + cf
+		ans = acc + add + carry
+		cpu.setFlag(FlagC, ans > 0xff)
+		cpu.setFlag(FlagV, (((acc & 0x80) == (add & 0x80)) && ((acc & 0x80) != (ans & 0x80))))
 	}
 
-	cpu.setFlag(FlagC, ans > 0xff)
-	t := uint8(ans & 0xff)
-	cpu.setFlag(FlagV, (((cpu.a^v)&0x80) == 0) && ((cpu.a^t)&0x80) != 0)
-	cpu.setFlag(FlagN, (t&0x80) != 0)
-	cpu.setFlag(FlagZ, t == 0)
-	cpu.a = t
+	cpu.a = uint8(ans)
+	cpu.setFlag(FlagN, (cpu.a&0x80) != 0)
+	cpu.setFlag(FlagZ, cpu.a == 0)
 	return nil
 }
 
@@ -870,33 +878,48 @@ func CPX(cpu *CPU, mode AddressingMode) error {
 // Note:C = Borrow
 func SBC(cpu *CPU, mode AddressingMode) error {
 	v, _ := cpu.loadByte(mode)
+	acc := uint16(cpu.a)
+	sub := uint16(v)
 	var ans uint16 = 0
-	var cf uint16 = 0
+	var carry uint16 = 0
 	if cpu.hasFlag(FlagC) {
-		cf = 1
+		carry = 1
 	}
 
 	if cpu.hasFlag(FlagD) {
-		// decimal mode
-		ans = uint16(cpu.a&0x0f) - uint16(v&0x0f) - cf
-		if (ans & 0x10) != 0 {
-			ans = ((ans - 0x6) & 0xf) | uint16((cpu.a&0xf0)-(v&0xf0)-0x10)
+		lo := 0x0f + (acc & 0x0f) - (sub & 0x0f) + carry
+
+		var carrylo uint16
+		if lo < 0x10 {
+			lo -= 0x06
+			carrylo = 0
 		} else {
-			ans = (ans & 0xf) | uint16((cpu.a&0xf0)-(v&0xf0))
+			lo -= 0x10
+			carrylo = 0x10
 		}
-		if (ans & 0x100) != 0 {
-			ans -= 0x60
+
+		hi := 0xf0 + (acc & 0xf0) - (sub & 0xf0) + carrylo
+
+		if hi < 0x100 {
+			cpu.setFlag(FlagC, false)
+			hi -= 0x60
+		} else {
+			cpu.setFlag(FlagC, true)
+			hi -= 0x100
 		}
+
+		ans = hi | lo
+
+		cpu.setFlag(FlagV, ((acc^ans)&0x80) != 0 && ((acc^sub)&0x80) != 0)
 	} else {
-		ans = uint16(cpu.a) - uint16(v) - cf
+		ans = 0xff + acc - sub + carry
+		cpu.setFlag(FlagC, ans > 0xff)
+		cpu.setFlag(FlagV, (((cpu.a & 0x80) != (v & 0x80)) && ((cpu.a & 0x80) != (uint8(ans) & 0x80))))
 	}
 
-	cpu.setFlag(FlagC, ans < 0x100)
-	t := uint8(ans & 0xff)
-	cpu.setFlag(FlagV, (((cpu.a^v)&0x80) == 0) && ((cpu.a^t)&0x80) != 0)
-	cpu.setFlag(FlagN, (t&0x80) != 0)
-	cpu.setFlag(FlagZ, t == 0)
-	cpu.a = t
+	cpu.a = uint8(ans)
+	cpu.setFlag(FlagN, (cpu.a&0x80) != 0)
+	cpu.setFlag(FlagZ, cpu.a == 0)
 	return nil
 }
 

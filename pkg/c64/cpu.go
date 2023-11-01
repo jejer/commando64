@@ -22,7 +22,7 @@ const (
 	FlagI
 	FlagD
 	FlagB
-	_ // unused, always set 1
+	FlagConstant // unused, always set 1
 	FlagV
 	FlagN
 
@@ -72,20 +72,25 @@ func (cpu *CPU) IRQ() {
 	if !cpu.hasFlag(FlagI) {
 		return
 	}
-	cpu.push(uint8((cpu.pc >> 8) & 0xff))
-	cpu.push(uint8(cpu.pc & 0xff))
-	cpu.push(cpu.p & 0xef) // push flags with bcf cleared
-	cpu.pc = cpu.mem.ReadWord(IRQVector)
-	cpu.setFlag(FlagI, true)
+	cpu.interrupt(false, IRQVector)
 	cpu.cycles += 7
 }
 
 func (cpu *CPU) NMI() {
+	cpu.interrupt(false, NMIVector)
+	cpu.cycles += 7
+}
+
+func (cpu *CPU) interrupt(brk bool, vector uint16) {
 	cpu.push(uint8((cpu.pc >> 8) & 0xff))
 	cpu.push(uint8(cpu.pc & 0xff))
-	cpu.push(cpu.p & 0xef) // push flags with bcf cleared
-	cpu.pc = cpu.mem.ReadWord(NMIVector)
-	cpu.cycles += 7
+	if brk {
+		cpu.push(cpu.p | FlagB)
+	} else {
+		cpu.push(cpu.p &^ FlagB)
+	}
+	cpu.setFlag(FlagI, true)
+	cpu.pc = cpu.mem.ReadWord(vector)
 }
 
 func (cpu *CPU) fetchOP() byte {
@@ -120,7 +125,7 @@ func (cpu *CPU) setFlag(flag uint8, v bool) {
 	} else {
 		cpu.p &^= flag
 	}
-	cpu.p |= 0x20
+	cpu.p |= FlagConstant
 }
 
 func (cpu *CPU) hasFlag(flag uint8) bool {
@@ -154,21 +159,22 @@ func (cpu *CPU) loadByte(mode AddressingMode) (byte, uint16) {
 	case IndexedZeropageX:
 		addr = uint16(cpu.fetchOP())
 		addr += uint16(cpu.x)
+		addr = addr & 0xff
 		v = cpu.mem.Read(addr)
 	case IndexedZeropageY:
 		addr = uint16(cpu.fetchOP())
 		addr += uint16(cpu.y)
+		addr = addr & 0xff
 		v = cpu.mem.Read(addr)
 	case IndexedIndirectX:
 		addr = uint16(cpu.fetchOP())
 		addr += uint16(cpu.x)
-		addr = cpu.mem.ReadWord(addr)
+		addr = cpu.mem.ReadWord(addr & 0xff)
 		v = cpu.mem.Read(addr)
 	case IndirectIndexedY:
 		addr = uint16(cpu.fetchOP())
-		addr = uint16(cpu.mem.Read(addr))
-		addr += uint16(cpu.y)
 		addr = cpu.mem.ReadWord(addr)
+		addr += uint16(cpu.y)
 		v = cpu.mem.Read(addr)
 	case AbsoluteIndirect: // only get address
 		addr = cpu.fetchWord()
