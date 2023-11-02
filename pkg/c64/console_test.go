@@ -22,5 +22,7 @@ func TestConsole(t *testing.T) {
 	c.CPU.Reset()
 	for {
 		c.CPU.Step()
+		c.CIA1.Step()
+		c.CIA2.Step()
 	}
 }

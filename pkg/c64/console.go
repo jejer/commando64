@@ -15,10 +15,9 @@ type Console struct {
 
 func NewConsole(logger slog.Logger) *Console {
 	c := &Console{logger: *logger.With("Component", "Console")}
-	cia1 := &CIA1{console: c}
-	cia2 := &CIA2{console: c}
-	vic := &VICII{console: c}
-	vic.rasterPos = 1
+	cia1 := NewCIA1(c, logger)
+	cia2 := NewCIA2(c, logger)
+	vic := NewVICII(c, logger)
 	mem := NewC64Memory(c, logger)
 	cpu := NewCPU(logger, mem)
 	c.CIA1 = cia1

@@ -103,6 +103,8 @@ func (m *C64MemoryMap) Write(addr uint16, v byte) {
 			m.console.CIA1.Write(addr, v)
 		case page == CIA2Page:
 			m.console.CIA2.Write(addr, v)
+		default:
+			m.ram[addr] = v
 		}
 	default:
 		// C64 always write to RAM even ROM is mounted.
@@ -123,11 +125,12 @@ func (m *C64MemoryMap) Read(addr uint16) byte {
 			return m.console.CIA1.Read(addr)
 		case page == CIA2Page:
 			return m.console.CIA2.Read(addr)
+		default:
+			return m.ram[addr]
 		}
 	default:
 		return m.ram[addr]
 	}
-	return 0
 	// page := addr & 0xff00
 	// switch {
 	// case page >= CharStartPage && page <= CharEndPage:

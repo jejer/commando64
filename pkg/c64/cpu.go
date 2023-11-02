@@ -65,7 +65,7 @@ func (cpu *CPU) Reset() {
 var CPU_DEBUG_PRINT = 0
 
 func (cpu *CPU) Step() {
-	if cpu.pc == 0xe5cd {
+	if cpu.pc == 0xe5d4 {
 		CPU_DEBUG_PRINT = 1
 	}
 	instraCode := cpu.fetchOP()
@@ -87,7 +87,7 @@ func (cpu *CPU) Step() {
 }
 
 func (cpu *CPU) IRQ() {
-	if !cpu.hasFlag(FlagI) {
+	if cpu.hasFlag(FlagI) {
 		return
 	}
 	cpu.interrupt(false, IRQVector)

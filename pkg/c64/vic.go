@@ -1,5 +1,7 @@
 package c64
 
+import "log/slog"
+
 // VIC-II
 // https://web.archive.org/web/20230521191139/https://dustlayer.com/vic-ii/2013/4/22/when-visibility-matters
 
@@ -8,6 +10,7 @@ package c64
 // http://unusedino.de/ec64/technical/aay/c64/vicmain.htm
 type VICII struct {
 	console *Console
+	logger  slog.Logger
 
 	// https://www.c64-wiki.com/wiki/Page_208-211
 	// $00~$10 sprite position
@@ -49,6 +52,12 @@ type VICII struct {
 	colorSpriteMulti [2]uint8
 	// $27~$2e sprite colors
 	colorSprite [8]uint8
+}
+
+func NewVICII(c *Console, logger slog.Logger) *VICII {
+	vic := &VICII{console: c}
+	vic.logger = *logger.With("Component", "VICII")
+	return vic
 }
 
 func (vic *VICII) Write(addr uint16, v uint8) {
