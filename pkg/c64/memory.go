@@ -60,25 +60,49 @@ type Memory interface {
 }
 
 type C64MemoryMap struct {
-	ram    [65536]byte
-	rom    [65536]byte
-	logger slog.Logger
+	console *Console
+	ram     [65536]byte
+	rom     [65536]byte
+	logger  slog.Logger
 }
 
-func NewC64Memory(logger slog.Logger) *C64MemoryMap {
-	m := &C64MemoryMap{}
+func NewC64Memory(c *Console, logger slog.Logger) *C64MemoryMap {
+	m := &C64MemoryMap{console: c}
 	m.logger = *logger.With("Component", "Memory")
 	return m
 }
 
 func (m *C64MemoryMap) Write(addr uint16, v byte) {
-	page := addr & 0xff00
-	switch {
-	case page == ZeroPage:
+	// page := addr & 0xff00
+	// switch {
+	// case page == ZeroPage:
+	// 	m.ram[addr] = v
+	// 	// log ROM bank switching
+	// 	if CpuPortRegister == addr {
+	// 		m.RomBankSwitch(v)
+	// 	}
+	// 	return
+	// default:
+	// 	// C64 always write to RAM even ROM is mounted.
+	// 	m.ram[addr] = v
+	// }
+
+	if CpuPortRegister == addr {
 		m.ram[addr] = v
-		// log ROM bank switching
-		if CpuPortRegister == addr {
-			m.RomBankSwitch(v)
+		m.RomBankSwitch(v)
+		return
+	}
+
+	switch m.GetAddrBandMode(addr) {
+	case BandModeIO:
+		page := addr & 0xff00
+		switch {
+		case page >= VICStartPage && page <= VICEndPage:
+			m.console.VIC.Write(addr, v)
+		case page == CIA1Page:
+			m.console.CIA1.Write(addr, v)
+		case page == CIA2Page:
+			m.console.CIA2.Write(addr, v)
 		}
 	default:
 		// C64 always write to RAM even ROM is mounted.
@@ -90,9 +114,20 @@ func (m *C64MemoryMap) Read(addr uint16) byte {
 	switch m.GetAddrBandMode(addr) {
 	case BandModeROM:
 		return m.rom[addr]
+	case BandModeIO:
+		page := addr & 0xff00
+		switch {
+		case page >= VICStartPage && page <= VICEndPage:
+			return m.console.VIC.Read(addr)
+		case page == CIA1Page:
+			return m.console.CIA1.Read(addr)
+		case page == CIA2Page:
+			return m.console.CIA2.Read(addr)
+		}
 	default:
 		return m.ram[addr]
 	}
+	return 0
 	// page := addr & 0xff00
 	// switch {
 	// case page >= CharStartPage && page <= CharEndPage:

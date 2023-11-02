@@ -65,17 +65,17 @@ func (cpu *CPU) Reset() {
 var CPU_DEBUG_PRINT = 0
 
 func (cpu *CPU) Step() {
-	if cpu.pc == 0xff5e {
+	if cpu.pc == 0xe5cd {
 		CPU_DEBUG_PRINT = 1
 	}
 	instraCode := cpu.fetchOP()
 	instruction, exist := Instructions[instraCode]
 	if CPU_DEBUG_PRINT == 1 {
 		CPU_DEBUG_PRINT = 2
-		cpu.logger.Debug(`PC  |   OP    |A |X |Y |P NV.BDIZC|SP|SD| `)
+		cpu.logger.Debug(`PC-1|   OP    |A |X |Y |P NV.BDIZC|SP|SD| `)
 	}
 	if CPU_DEBUG_PRINT == 2 {
-		cpu.logger.Debug(fmt.Sprintf("%04x|%s%02x%02x%02x|%02x|%02x|%02x|%02x%08b|%02x|%02x| ", cpu.pc, runtime.FuncForPC(reflect.ValueOf(instruction.fn).Pointer()).Name()[36:39], cpu.mem.Read(cpu.pc-1), cpu.mem.Read(cpu.pc), cpu.mem.Read(cpu.pc+1), cpu.a, cpu.x, cpu.y, cpu.p, cpu.p, cpu.sp, cpu.mem.ram[StackLow+uint16(cpu.sp)+1]))
+		cpu.logger.Debug(fmt.Sprintf("%04x|%s%02x%02x%02x|%02x|%02x|%02x|%02x%08b|%02x|%02x| ", cpu.pc-1, runtime.FuncForPC(reflect.ValueOf(instruction.fn).Pointer()).Name()[36:39], cpu.mem.Read(cpu.pc-1), cpu.mem.Read(cpu.pc), cpu.mem.Read(cpu.pc+1), cpu.a, cpu.x, cpu.y, cpu.p, cpu.p, cpu.sp, cpu.mem.ram[StackLow+uint16(cpu.sp)+1]))
 	}
 	if !exist {
 		cpu.logger.Error("Instruction Unsupported", "instruction", instruction)

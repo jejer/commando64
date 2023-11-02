@@ -12,7 +12,7 @@ func TestCPU(t *testing.T) {
 	// handler := slog.NewTextHandler(os.Stdout, opts)
 	// logger := slog.New(handler)
 	logger := slog.Default()
-	mem := NewC64Memory(*logger)
+	mem := NewC64Memory(nil, *logger)
 	cpu := NewCPU(*logger, mem)
 	mem.Write(CpuPortRegister, 0x0) // umount c64 roms
 	mem.LoadRom("../../test/roms/6502_functional_test.bin", 0x400, true)

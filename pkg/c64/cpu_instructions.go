@@ -352,7 +352,7 @@ func ROL(cpu *CPU, mode AddressingMode) error {
 // From Stack
 // _ _ _ _ _ _
 func PLP(cpu *CPU, mode AddressingMode) error {
-	cpu.p = cpu.pop()
+	cpu.p = cpu.pop() | FlagConstant
 	return nil
 }
 
