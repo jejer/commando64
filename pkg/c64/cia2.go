@@ -157,6 +157,7 @@ func (cia2 *CIA2) Step() {
 				cia2.irqStatus |= 0x81
 				cia2.console.CPU.NMI()
 			}
+			cia2.timerACounter = cia2.timerA
 		}
 		cia2.timerACounter -= uint16(eclipse)
 	}
@@ -167,6 +168,7 @@ func (cia2 *CIA2) Step() {
 				cia2.irqStatus |= 0x82
 				cia2.console.CPU.NMI()
 			}
+			cia2.timerBCounter = cia2.timerB
 		}
 		cia2.timerBCounter -= uint16(eclipse)
 	}

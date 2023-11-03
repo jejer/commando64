@@ -123,12 +123,8 @@ func (cia1 *CIA1) Read(addr uint16) uint8 {
 			return 0xff
 		}
 		if cia1.dataPortA != 0 {
-			col := -1
-			for v := ^cia1.dataPortA; v > 0; v = v >> 1 {
-				col++
-			}
-			// TODO get io data
-			// return cia1.console.IO.KeyboardRow(col)
+			// TODO get io data https://www.c64-wiki.com/wiki/Keyboard#Hardware
+			// return cia1.console.IO.KeyboardRow(cia1.dataPortA)
 		}
 	case 0xdc02:
 		return cia1.dataPortADir
@@ -162,6 +158,7 @@ func (cia1 *CIA1) Step() {
 				cia1.irqStatus |= 0x81
 				cia1.console.CPU.IRQ()
 			}
+			cia1.timerACounter = cia1.timerA
 		}
 		cia1.timerACounter -= uint16(eclipse)
 	}
@@ -172,6 +169,7 @@ func (cia1 *CIA1) Step() {
 				cia1.irqStatus |= 0x82
 				cia1.console.CPU.IRQ()
 			}
+			cia1.timerBCounter = cia1.timerB
 		}
 		cia1.timerBCounter -= uint16(eclipse)
 	}

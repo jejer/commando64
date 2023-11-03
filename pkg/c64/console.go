@@ -10,6 +10,7 @@ type Console struct {
 	VIC    *VICII
 	Memory *C64MemoryMap
 	CPU    *CPU
+	IO     *IO
 	logger slog.Logger
 }
 
@@ -20,11 +21,13 @@ func NewConsole(logger slog.Logger) *Console {
 	vic := NewVICII(c, logger)
 	mem := NewC64Memory(c, logger)
 	cpu := NewCPU(logger, mem)
+	io := NewIO(logger, c)
 	c.CIA1 = cia1
 	c.CIA2 = cia2
 	c.VIC = vic
 	c.Memory = mem
 	c.CPU = cpu
+	c.IO = io
 	return c
 }
 

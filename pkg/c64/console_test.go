@@ -24,5 +24,6 @@ func TestConsole(t *testing.T) {
 		c.CPU.Step()
 		c.CIA1.Step()
 		c.CIA2.Step()
+		c.VIC.Step()
 	}
 }
