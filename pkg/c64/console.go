@@ -38,5 +38,8 @@ func NewConsole(logger slog.Logger) *Console {
 func (c *Console) Run() {
 	for {
 		c.CPU.Step()
+		c.CIA1.Step()
+		c.CIA2.Step()
+		c.VIC.Step()
 	}
 }

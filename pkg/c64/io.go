@@ -1,13 +1,22 @@
 package c64
 
-import "log/slog"
+import (
+	"log/slog"
+	"unsafe"
+
+	"github.com/veandco/go-sdl2/sdl"
+)
 
 type IO struct {
 	console *Console
 	logger  slog.Logger
 	// video
-	frame  [ScreenVisibleLines * ScreenVisibleWidth]uint32 // bitmap
-	colors [16]uint32
+	frame    [ScreenVisibleLines * ScreenVisibleWidth]uint32 // bitmap
+	colors   [16]uint32
+	window   *sdl.Window
+	renderer *sdl.Renderer
+	texture  *sdl.Texture
+	surface  *sdl.Surface
 
 	// keyboard
 	// 		PB7	PB6	PB5	PB4	PB3	PB2	PB1	PB0
@@ -28,22 +37,22 @@ func NewIO(logger slog.Logger, c *Console) *IO {
 		console: c,
 		logger:  *logger.With("Component", "IO"),
 		colors: [16]uint32{
-			0xff000000,
+			0x000000ff,
 			0xffffffff,
-			0xffab3126,
-			0xff66daff,
-			0xffbb3fb8,
-			0xff55ce58,
-			0xff1d0e97,
-			0xffeaf57c,
-			0xffb97418,
-			0xff785300,
-			0xffdd9387,
-			0xff5b5b5b,
-			0xff8b8b8b,
-			0xffb0f4ac,
-			0xffaa9def,
-			0xffb8b8b8,
+			0xab3126ff,
+			0x66daffff,
+			0xbb3fb8ff,
+			0x55ce58ff,
+			0x1d0e97ff,
+			0xeaf57cff,
+			0xb97418ff,
+			0x785300ff,
+			0xdd9387ff,
+			0x5b5b5bff,
+			0x8b8b8bff,
+			0xb0f4acff,
+			0xaa9defff,
+			0xb8b8b8ff,
 		},
 	}
 	for i := 0; i < 8; i++ {
@@ -86,9 +95,86 @@ func NewIO(logger slog.Logger, c *Console) *IO {
 	io.keyboardIndex['7'] = 0x30
 	io.keyboardIndex['8'] = 0x33
 	io.keyboardIndex['9'] = 0x40
+	io.keyboardIndex['\n'] = 0x01
+	io.keyboardIndex[' '] = 0x74
+	io.keyboardIndex['/'] = 0x67
+	io.keyboardIndex['^'] = 0x66
+	io.keyboardIndex['='] = 0x65
+	io.keyboardIndex[';'] = 0x62
+	io.keyboardIndex['*'] = 0x61
+	io.keyboardIndex[','] = 0x57
+	io.keyboardIndex['@'] = 0x56
+	io.keyboardIndex[':'] = 0x55
+	io.keyboardIndex['.'] = 0x54
+	io.keyboardIndex['-'] = 0x53
+	io.keyboardIndex['+'] = 0x50
+
+	if err := sdl.Init(sdl.INIT_EVERYTHING); err != nil {
+		logger.Error("SDL init failed")
+	}
+	window, err := sdl.CreateWindow(
+		"commando64",
+		sdl.WINDOWPOS_CENTERED,
+		sdl.WINDOWPOS_CENTERED,
+		ScreenVisibleWidth*2,
+		ScreenVisibleLines*2,
+		sdl.WINDOW_SHOWN,
+	)
+	if err != nil {
+		logger.Error("Window create failed")
+	}
+	io.window = window
+
+	surface, err := window.GetSurface()
+	if err != nil {
+		logger.Error("Surface create failed")
+	}
+	io.surface = surface
+	renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
+	if err != nil {
+		logger.Error("Renderer create failed")
+	}
+	renderer.SetDrawColor(0, 0, 0, 255)
+	renderer.Clear()
+	renderer.Present()
+	io.renderer = renderer
+	texture, err := renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STREAMING, ScreenVisibleWidth, ScreenVisibleLines)
+	if err != nil {
+		logger.Error("Texture create failed")
+	}
+	io.texture = texture
+
 	return io
 }
 
-func (io *IO) SetFramePixel(x, y int, color uint8) {
-	io.frame[y*ScreenVisibleWidth+x] = io.colors[color&0x0f]
+func (io *IO) Run() {
+	running := true
+	for running {
+		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+			switch event.(type) {
+			case *sdl.QuitEvent:
+				println("Quit")
+				running = false
+			}
+		}
+		sdl.Delay(16)
+	}
+}
+
+func (io *IO) SetFramePixel(x int, y uint16, color uint8) {
+	c := io.colors[color&0x0f]
+	pixels := io.surface.Pixels()
+	pixels[int(y)*ScreenVisibleWidth+x] = byte((c & 0xff000000) >> 24)
+	pixels[int(y)*ScreenVisibleWidth+x+1] = byte((c & 0xff000000) >> 16)
+	pixels[int(y)*ScreenVisibleWidth+x+2] = byte((c & 0xff000000) >> 8)
+	pixels[int(y)*ScreenVisibleWidth+x+3] = byte((c & 0xff000000))
+	io.frame[int(y)*ScreenVisibleWidth+x] = io.colors[color&0x0f]
+}
+
+func (io *IO) RefreshScreen() {
+	io.texture.Update(nil, unsafe.Pointer(&io.surface.Pixels()[0]), ScreenVisibleWidth*4)
+	// io.renderer.Clear()
+	// io.renderer.Copy(io.texture, nil, nil)
+	// io.renderer.Present()
+	io.window.UpdateSurface()
 }

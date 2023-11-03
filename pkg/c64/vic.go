@@ -22,6 +22,7 @@ const (
 	InvalidMode
 
 	// screen constants
+	// https://dustlayer.com/vic-ii/2013/4/25/vic-ii-for-beginners-beyond-the-screen-rasters-cycle
 	ScreenLines            = 312
 	ScreenWidth            = 504
 	ScreenVisibleLines     = 284
@@ -30,6 +31,10 @@ const (
 	ScreenLastVisibleLine  = 298
 	ScreenFirstTextLine    = 56
 	ScreenLastTextLine     = 256
+	ScreenFirstTextCol     = 42
+	ScreenTextLines        = 200
+	ScreenTextWidth        = 320
+	ScreenTextPerLine      = 40
 	LineCycles             = 63
 	BadLineCycles          = 23
 )
@@ -226,11 +231,11 @@ func (vic *VICII) Step() {
 	if line >= ScreenFirstVisibleLine && line < ScreenLastVisibleLine {
 		y := line - ScreenFirstVisibleLine
 		for x := 0; x < ScreenVisibleWidth; x++ {
-			vic.console.IO.SetFramePixel(x, int(y), vic.colorBorder)
+			vic.console.IO.SetFramePixel(x, y, vic.colorBorder)
 		}
 		switch vic.mode {
 		case StdCharMode:
-			// vic.drawCharLine()
+			vic.drawCharRasterLine(line, y)
 		default:
 			vic.logger.Error("VIC mod not implemented", "mode", vic.mode)
 		}
@@ -247,7 +252,7 @@ func (vic *VICII) Step() {
 	line++
 	if line == ScreenLines {
 		line = 0
-		// TODO: display frame
+		vic.console.IO.RefreshScreen()
 	}
 	vic.rasterPos = uint8(line & 0x00ff)
 	vic.control1 &= 0x7f
@@ -262,6 +267,61 @@ func (vic *VICII) setGraphicMode() {
 	}
 	vic.mode = GraphicMode(mode)
 	vic.logger.Info("SetGraphicMode", "mode", mode)
+}
+
+func (vic *VICII) drawCharRasterLine(line, y uint16) {
+	if line < ScreenFirstTextLine || line >= ScreenLastTextLine || (vic.control1<<4) == 0 {
+		return
+	}
+
+	// text background
+	for x := 0; x < ScreenTextWidth; x++ {
+		vic.console.IO.SetFramePixel(x+ScreenFirstTextCol, y, vic.colorBackground[0])
+	}
+
+	// text dots in this line
+	for col := 0; col < ScreenTextPerLine; col++ {
+		row := (line - ScreenFirstTextLine) / 8
+		char := vic.getScreenChar(row, uint16(col))
+		color := vic.getCharColor(row, uint16(col))
+		data := vic.getCharData(char, (line-ScreenFirstTextLine)%8)
+		for i := 7; i >= 0; i-- {
+			if data&(1<<i) != 0 {
+				x := ScreenFirstTextCol + (col * 8) + i
+				vic.console.IO.SetFramePixel(x, y, color)
+			}
+		}
+	}
+}
+
+func (vic *VICII) getScreenChar(row, col uint16) uint8 {
+	addr := vic.screenMemOffset + row*ScreenTextPerLine + col
+	return vic.memRead(addr)
+}
+
+func (vic *VICII) getCharData(char uint8, row uint16) uint8 {
+	addr := vic.charMemOffset + (uint16(char) * 8) + row
+	return vic.memRead(addr)
+}
+
+func (vic *VICII) getCharColor(row, col uint16) uint8 {
+	addr := ColorRamStartPage + row*ScreenTextPerLine + col
+	return vic.console.Memory.Read(addr)
+}
+
+func (vic *VICII) memRead(addr uint16) uint8 {
+	// %00, 0: Bank 3: $C000-$FFFF, 49152-65535
+	// %01, 1: Bank 2: $8000-$BFFF, 32768-49151
+	// %10, 2: Bank 1: $4000-$7FFF, 16384-32767
+	// %11, 3: Bank 0: $0000-$3FFF, 0-16383 (standard)
+	base := uint16((^vic.console.CIA2.dataPortA)&0x03) << 14
+
+	addr = base + (addr & 0x3fff)
+	// character rom hard linked for band3 and band1
+	if (addr >= 0x1000 && addr < 0x2000) || (addr >= 0x9000 && addr < 0xa000) {
+		return vic.console.Memory.rom[CharsRomAddr+(addr&0x0fff)]
+	}
+	return vic.console.Memory.Read(addr)
 }
 
 // According to Christian Bauer's paper:

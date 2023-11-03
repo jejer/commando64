@@ -13,6 +13,7 @@ func TestConsole(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stdout, opts)
 	logger := slog.New(handler)
 	// logger := slog.Default()
+
 	c := NewConsole(*logger)
 	// setup c64 default roms
 	c.Memory.Write(CpuPortRegister, LORAM|HIRAM|CHAREN)
@@ -20,10 +21,5 @@ func TestConsole(t *testing.T) {
 	c.Memory.LoadRom("../../test/roms/kernal.901227-03.bin", KernalRomAddr, false)
 	c.Memory.LoadRom("../../test/roms/characters.901225-01.bin", CharsRomAddr, false)
 	c.CPU.Reset()
-	for {
-		c.CPU.Step()
-		c.CIA1.Step()
-		c.CIA2.Step()
-		c.VIC.Step()
-	}
+	c.Run()
 }

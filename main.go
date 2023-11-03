@@ -25,5 +25,6 @@ func main() {
 	c.Memory.LoadRom("test/roms/kernal.901227-03.bin", c64.KernalRomAddr, false)
 	c.Memory.LoadRom("test/roms/characters.901225-01.bin", c64.CharsRomAddr, false)
 	c.CPU.Reset()
-	c.Run()
+	go c.Run()
+	c.IO.Run()
 }
