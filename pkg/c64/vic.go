@@ -285,9 +285,9 @@ func (vic *VICII) drawCharRasterLine(line, y uint16) {
 		char := vic.getScreenChar(row, uint16(col))
 		color := vic.getCharColor(row, uint16(col))
 		data := vic.getCharData(char, (line-ScreenFirstTextLine)%8)
-		for i := 7; i >= 0; i-- {
+		for i := 0; i < 8; i++ {
 			if data&(1<<i) != 0 {
-				x := ScreenFirstTextCol + (col * 8) + i
+				x := ScreenFirstTextCol + (col * 8) + 8 - i
 				vic.console.IO.SetFramePixel(x, y, color)
 			}
 		}

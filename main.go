@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"log/slog"
 
@@ -10,14 +9,14 @@ import (
 )
 
 func main() {
-	fmt.Println("Hello Commando 64")
+	fmt.Println("Hello Commando C64")
 
-	opts := &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}
-	handler := slog.NewTextHandler(os.Stdout, opts)
-	logger := slog.New(handler)
-	// logger := slog.Default()
+	// opts := &slog.HandlerOptions{
+	// 	Level: slog.LevelDebug,
+	// }
+	// handler := slog.NewTextHandler(os.Stdout, opts)
+	// logger := slog.New(handler)
+	logger := slog.Default()
 	c := c64.NewConsole(*logger)
 	// setup c64 default roms
 	c.Memory.Write(c64.CpuPortRegister, c64.LORAM|c64.HIRAM|c64.CHAREN)

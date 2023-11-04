@@ -123,8 +123,17 @@ func (cia1 *CIA1) Read(addr uint16) uint8 {
 			return 0xff
 		}
 		if cia1.dataPortA != 0 {
-			// TODO get io data https://www.c64-wiki.com/wiki/Keyboard#Hardware
-			// return cia1.console.IO.KeyboardRow(cia1.dataPortA)
+			// https://www.c64-wiki.com/wiki/Keyboard#Hardware
+			d := ^cia1.dataPortA
+			row := 0
+			for i := 0; i < 8; i++ {
+				if d&0x01 != 0 {
+					break
+				}
+				row++
+				d >>= 1
+			}
+			return cia1.console.IO.keyboardMetrix[row]
 		}
 	case 0xdc02:
 		return cia1.dataPortADir

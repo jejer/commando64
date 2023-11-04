@@ -151,7 +151,9 @@ func (m *C64MemoryMap) ReadWord(addr uint16) uint16 {
 
 // https://web.archive.org/web/20230527235630/https://www.c64-wiki.com/wiki/Zeropage
 func (m *C64MemoryMap) RomBankSwitch(v byte) {
-	m.logger.Info("RomBankSwitch", "data", fmt.Sprintf("%08b", v))
+	if v != m.ram[CpuPortRegister] {
+		m.logger.Info("RomBankSwitch", "data", fmt.Sprintf("%08b", v))
+	}
 }
 
 func (m *C64MemoryMap) LoadRom(path string, addr uint16, ram bool) error {
