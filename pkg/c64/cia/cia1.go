@@ -1,10 +1,17 @@
-package c64
+package cia
 
-import "log/slog"
+import (
+	"log/slog"
+
+	"github.com/jejer/commando64/pkg/c64"
+	"github.com/jejer/commando64/pkg/c64/clock"
+)
 
 type CIA1 struct {
-	console *Console
-	logger  slog.Logger
+	logger       slog.Logger
+	peripheralIO c64.PeripheralIO
+	irqCh        chan<- bool
+	clock        *clock.Clock
 
 	// https://www.c64-wiki.com/wiki/CIA
 	// $DC00 Data Port A, keyboard matrix columns
@@ -32,15 +39,14 @@ type CIA1 struct {
 	timerBIRQEnabled bool
 	timerBEnabled    bool
 	timerBCounter    uint16
-	prevCPUCycles    uint64
 	// $DC0E Control Timer A
 	timerAControl uint8
 	// $DC0F Control Timer B
 	timerBControl uint8
 }
 
-func NewCIA1(c *Console, logger slog.Logger) *CIA1 {
-	cia1 := &CIA1{console: c}
+func NewCIA1(logger slog.Logger, clock *clock.Clock, ch chan<- bool, io c64.PeripheralIO) *CIA1 {
+	cia1 := &CIA1{peripheralIO: io, irqCh: ch, clock: clock}
 	cia1.logger = *logger.With("Component", "CIA1")
 	return cia1
 }
@@ -69,6 +75,7 @@ func (cia1 *CIA1) Write(addr uint16, v uint8) {
 		cia1.timerB |= (uint16(v) << 8)
 	case 0xdc08, 0xdc09, 0xdc0a, 0xdc0b: // TODO: TOD registers
 	case 0xdc0c: // serial shift register
+		cia1.sdr = v
 	case 0xdc0d:
 		cia1.irqControl = v
 		if v&0x81 == 0x81 {
@@ -125,7 +132,7 @@ func (cia1 *CIA1) Read(addr uint16) uint8 {
 		if cia1.dataPortA != 0 {
 			// https://www.c64-wiki.com/wiki/Keyboard#Hardware
 			d := ^cia1.dataPortA
-			row := 0
+			row := uint8(0)
 			for i := 0; i < 8; i++ {
 				if d&0x01 != 0 {
 					break
@@ -133,7 +140,7 @@ func (cia1 *CIA1) Read(addr uint16) uint8 {
 				row++
 				d >>= 1
 			}
-			return cia1.console.IO.keyboardMetrix[row]
+			return cia1.peripheralIO.ReadKeyboardMatrix(row)
 		}
 	case 0xdc02:
 		return cia1.dataPortADir
@@ -148,7 +155,8 @@ func (cia1 *CIA1) Read(addr uint16) uint8 {
 	case 0xdc07:
 		return uint8((cia1.timerBCounter & 0xff00) >> 8)
 	case 0xdc08, 0xdc09, 0xdc0a, 0xdc0b: // TODO: TOD registers
-	case 0xdc0c: // serial shift register
+	case 0xdc0c:
+		return cia1.sdr
 	case 0xdc0d:
 		return cia1.irqStatus
 	case 0xdc0e:
@@ -159,28 +167,32 @@ func (cia1 *CIA1) Read(addr uint16) uint8 {
 	return 0
 }
 
-func (cia1 *CIA1) Step() {
+func (cia1 *CIA1) Run() {
+	for {
+		<-cia1.clock.CIA1
+		cia1.step()
+	}
+}
+
+func (cia1 *CIA1) step() {
 	if cia1.timerAEnabled {
-		eclipse := cia1.console.CPU.cycles - cia1.prevCPUCycles
-		if eclipse > uint64(cia1.timerACounter) {
+		cia1.timerACounter--
+		if cia1.timerACounter == 0 {
 			if cia1.timerAIRQEnabled {
 				cia1.irqStatus |= 0x81
-				cia1.console.CPU.IRQ()
+				go func() { cia1.irqCh <- false }()
 			}
 			cia1.timerACounter = cia1.timerA
 		}
-		cia1.timerACounter -= uint16(eclipse)
 	}
 	if cia1.timerBEnabled {
-		eclipse := cia1.console.CPU.cycles - cia1.prevCPUCycles
-		if eclipse > uint64(cia1.timerBCounter) {
+		cia1.timerBCounter--
+		if cia1.timerBCounter == 0 {
 			if cia1.timerBIRQEnabled {
 				cia1.irqStatus |= 0x82
-				cia1.console.CPU.IRQ()
+				go func() { cia1.irqCh <- false }()
 			}
 			cia1.timerBCounter = cia1.timerB
 		}
-		cia1.timerBCounter -= uint16(eclipse)
 	}
-	cia1.prevCPUCycles = cia1.console.CPU.cycles
 }

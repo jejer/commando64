@@ -1,13 +1,16 @@
-package c64
+package cia
 
 import (
 	"fmt"
 	"log/slog"
+
+	"github.com/jejer/commando64/pkg/c64/clock"
 )
 
 type CIA2 struct {
-	console *Console
-	logger  slog.Logger
+	logger slog.Logger
+	irqCh  chan<- bool
+	clock  *clock.Clock
 
 	// https://www.c64-wiki.com/wiki/CIA
 	// $DD00 Data Port A, keyboard matrix columns
@@ -35,15 +38,14 @@ type CIA2 struct {
 	timerBIRQEnabled bool
 	timerBEnabled    bool
 	timerBCounter    uint16
-	prevCPUCycles    uint64
 	// $DD0E Control Timer A
 	timerAControl uint8
 	// $DD0F Control Timer B
 	timerBControl uint8
 }
 
-func NewCIA2(c *Console, logger slog.Logger) *CIA2 {
-	cia2 := &CIA2{console: c}
+func NewCIA2(logger slog.Logger, clock *clock.Clock, irq chan<- bool) *CIA2 {
+	cia2 := &CIA2{irqCh: irq, clock: clock}
 	cia2.logger = *logger.With("Component", "CIA2")
 	return cia2
 }
@@ -73,6 +75,7 @@ func (cia2 *CIA2) Write(addr uint16, v uint8) {
 		cia2.timerB |= (uint16(v) << 8)
 	case 0xdd08, 0xdd09, 0xdd0a, 0xdd0b: // TODO: TOD registers
 	case 0xdd0c: // serial shift register
+		cia2.sdr = v
 	case 0xdd0d:
 		cia2.irqControl = v
 		if v&0x81 == 0x81 {
@@ -139,6 +142,7 @@ func (cia2 *CIA2) Read(addr uint16) uint8 {
 		return uint8((cia2.timerBCounter & 0xff00) >> 8)
 	case 0xdd08, 0xdd09, 0xdd0a, 0xdd0b: // TODO: TOD registers
 	case 0xdd0c: // serial shift register
+		return cia2.sdr
 	case 0xdd0d:
 		return cia2.irqStatus
 	case 0xdd0e:
@@ -149,28 +153,32 @@ func (cia2 *CIA2) Read(addr uint16) uint8 {
 	return 0
 }
 
-func (cia2 *CIA2) Step() {
+func (cia2 *CIA2) Run() {
+	for {
+		<-cia2.clock.CIA2
+		cia2.step()
+	}
+}
+
+func (cia2 *CIA2) step() {
 	if cia2.timerAEnabled {
-		eclipse := cia2.console.CPU.cycles - cia2.prevCPUCycles
-		if eclipse > uint64(cia2.timerACounter) {
+		cia2.timerACounter--
+		if cia2.timerACounter == 0 {
 			if cia2.timerAIRQEnabled {
 				cia2.irqStatus |= 0x81
-				cia2.console.CPU.NMI()
+				go func() { cia2.irqCh <- true }()
 			}
 			cia2.timerACounter = cia2.timerA
 		}
-		cia2.timerACounter -= uint16(eclipse)
 	}
 	if cia2.timerBEnabled {
-		eclipse := cia2.console.CPU.cycles - cia2.prevCPUCycles
-		if eclipse > uint64(cia2.timerBCounter) {
+		cia2.timerBCounter--
+		if cia2.timerBCounter == 0 {
 			if cia2.timerBIRQEnabled {
 				cia2.irqStatus |= 0x82
-				cia2.console.CPU.NMI()
+				go func() { cia2.irqCh <- true }()
 			}
 			cia2.timerBCounter = cia2.timerB
 		}
-		cia2.timerBCounter -= uint16(eclipse)
 	}
-	cia2.prevCPUCycles = cia2.console.CPU.cycles
 }

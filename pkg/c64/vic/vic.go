@@ -1,8 +1,11 @@
-package c64
+package vic
 
 import (
 	"fmt"
 	"log/slog"
+
+	"github.com/jejer/commando64/pkg/c64"
+	"github.com/jejer/commando64/pkg/c64/clock"
 )
 
 // VIC-II
@@ -14,6 +17,7 @@ import (
 type GraphicMode int
 
 const (
+	// VIC
 	StdCharMode          GraphicMode = iota // ECM0 BMM0 MCM0
 	MultiColorCharMode                      // ECM0 BMM0 MCM1
 	StdBitmapMode                           // ECM0 BMM1 MCM0
@@ -37,11 +41,18 @@ const (
 	ScreenTextPerLine      = 40
 	LineCycles             = 63
 	BadLineCycles          = 23
+
+	ColorRamStartPage uint16 = 0xd800
 )
 
 type VICII struct {
-	console *Console
-	logger  slog.Logger
+	logger       slog.Logger
+	clock        *clock.Clock
+	cycle        int8
+	cpuCycle     int8
+	mem          c64.MemoryBus
+	irqCh        chan<- bool
+	peripheralIO c64.PeripheralIO
 
 	// https://www.c64-wiki.com/wiki/Page_208-211
 	// $00~$10 sprite position
@@ -90,13 +101,14 @@ type VICII struct {
 	screenMemOffset uint16
 	bitmapMemOffset uint16
 
-	rasterIrqRequest    uint16
-	nextRasterLineCycle uint64
+	rasterIrqRequest uint16
 }
 
-func NewVICII(c *Console, logger slog.Logger) *VICII {
-	vic := &VICII{console: c}
+func NewVICII(logger slog.Logger, clock *clock.Clock, m c64.MemoryBus, ch chan<- bool, io c64.PeripheralIO) *VICII {
+	vic := &VICII{mem: m, peripheralIO: io, irqCh: ch, clock: clock}
 	vic.logger = *logger.With("Component", "VICII")
+	vic.cycle = 1
+	vic.cpuCycle = 1
 	return vic
 }
 
@@ -208,15 +220,25 @@ func (vic *VICII) Read(addr uint16) uint8 {
 	return 0
 }
 
-func (vic *VICII) Step() {
+func (vic *VICII) Run() {
+	for {
+		<-vic.clock.VIC
+		vic.cpuCycle--
+		if vic.cpuCycle >= 0 {
+			vic.clock.CPU <- true
+		}
+		vic.cycle--
+		if vic.cycle == 0 {
+			vic.step()
+		}
+	}
+}
+
+// a step is a raster line
+func (vic *VICII) step() {
 	if vic.interruptStatus&0x80 != 0 {
 		// interrupts are not handled by CPU
-		vic.console.CPU.IRQ()
-	}
-
-	if vic.console.CPU.cycles < vic.nextRasterLineCycle {
-		// wait for CPU
-		return
+		go func() { vic.irqCh <- false }()
 	}
 
 	var line uint16 = uint16(vic.rasterPos) | (uint16(vic.control1&0x0080) << 1)
@@ -224,14 +246,14 @@ func (vic *VICII) Step() {
 	if vic.interruptEnabled&0x01 != 0 && line == vic.rasterIrqRequest {
 		// check and trigger raster line irq
 		vic.interruptStatus |= 0x01
-		vic.console.CPU.IRQ()
+		go func() { vic.irqCh <- false }()
 	}
 
 	// draw line
 	if line >= ScreenFirstVisibleLine && line < ScreenLastVisibleLine {
 		y := line - ScreenFirstVisibleLine
 		for x := 0; x < ScreenVisibleWidth; x++ {
-			vic.console.IO.SetFramePixel(x, y, vic.colorBorder)
+			vic.peripheralIO.SetFramePixel(x, y, vic.colorBorder)
 		}
 		switch vic.mode {
 		case StdCharMode:
@@ -242,17 +264,18 @@ func (vic *VICII) Step() {
 	}
 
 	// update next cycle
+	vic.cycle = LineCycles
 	if vic.isBadLine(line) {
-		vic.nextRasterLineCycle += BadLineCycles
+		vic.cpuCycle = BadLineCycles
 	} else {
-		vic.nextRasterLineCycle += LineCycles
+		vic.cpuCycle = LineCycles
 	}
 
 	// update raster
 	line++
 	if line == ScreenLines {
 		line = 0
-		vic.console.IO.RefreshScreen()
+		vic.peripheralIO.RefreshScreen()
 	}
 	vic.rasterPos = uint8(line & 0x00ff)
 	vic.control1 &= 0x7f
@@ -276,7 +299,7 @@ func (vic *VICII) drawCharRasterLine(line, y uint16) {
 
 	// text background
 	for x := 0; x < ScreenTextWidth; x++ {
-		vic.console.IO.SetFramePixel(x+ScreenFirstTextCol, y, vic.colorBackground[0])
+		vic.peripheralIO.SetFramePixel(x+ScreenFirstTextCol, y, vic.colorBackground[0])
 	}
 
 	// text dots in this line
@@ -288,7 +311,7 @@ func (vic *VICII) drawCharRasterLine(line, y uint16) {
 		for i := 0; i < 8; i++ {
 			if data&(1<<i) != 0 {
 				x := ScreenFirstTextCol + (col * 8) + 8 - i
-				vic.console.IO.SetFramePixel(x, y, color)
+				vic.peripheralIO.SetFramePixel(x, y, color)
 			}
 		}
 	}
@@ -296,32 +319,17 @@ func (vic *VICII) drawCharRasterLine(line, y uint16) {
 
 func (vic *VICII) getScreenChar(row, col uint16) uint8 {
 	addr := vic.screenMemOffset + row*ScreenTextPerLine + col
-	return vic.memRead(addr)
+	return vic.mem.VicRead(addr)
 }
 
 func (vic *VICII) getCharData(char uint8, row uint16) uint8 {
 	addr := vic.charMemOffset + (uint16(char) * 8) + row
-	return vic.memRead(addr)
+	return vic.mem.VicRead(addr)
 }
 
 func (vic *VICII) getCharColor(row, col uint16) uint8 {
 	addr := ColorRamStartPage + row*ScreenTextPerLine + col
-	return vic.console.Memory.Read(addr)
-}
-
-func (vic *VICII) memRead(addr uint16) uint8 {
-	// %00, 0: Bank 3: $C000-$FFFF, 49152-65535
-	// %01, 1: Bank 2: $8000-$BFFF, 32768-49151
-	// %10, 2: Bank 1: $4000-$7FFF, 16384-32767
-	// %11, 3: Bank 0: $0000-$3FFF, 0-16383 (standard)
-	base := uint16((^vic.console.CIA2.dataPortA)&0x03) << 14
-
-	addr = base + (addr & 0x3fff)
-	// character rom hard linked for band3 and band1
-	if (addr >= 0x1000 && addr < 0x2000) || (addr >= 0x9000 && addr < 0xa000) {
-		return vic.console.Memory.rom[CharsRomAddr+(addr&0x0fff)]
-	}
-	return vic.console.Memory.Read(addr)
+	return vic.mem.Read(addr)
 }
 
 // According to Christian Bauer's paper:

@@ -1,10 +1,13 @@
-package c64
+package cpu
 
 import (
 	"fmt"
 	"log/slog"
 	"reflect"
 	"runtime"
+
+	"github.com/jejer/commando64/pkg/c64"
+	"github.com/jejer/commando64/pkg/c64/clock"
 )
 
 const (
@@ -38,19 +41,23 @@ const (
 )
 
 type CPU struct {
-	mem        *C64MemoryMap
+	logger     slog.Logger
+	clock      *clock.Clock
+	mem        c64.MemoryBus
 	pc         uint16
 	a, x, y, p uint8 // registers
 	sp         uint8 // stack pointer
-	cycles     uint64
-	logger     slog.Logger
+	cycles     uint8
+	irqCh      <-chan bool
 }
 
-func NewCPU(logger slog.Logger, m *C64MemoryMap) *CPU {
+func NewCPU(logger slog.Logger, clock *clock.Clock, m c64.MemoryBus, irq <-chan bool) *CPU {
 	// https://www.c64-wiki.com/index.php/Reset_(Process)
 	return &CPU{
 		mem:    m,
 		pc:     m.ReadWord(ResetVector),
+		irqCh:  irq,
+		clock:  clock,
 		cycles: 0x6,
 		logger: *logger.With("Component", "CPU"),
 	}
@@ -62,9 +69,29 @@ func (cpu *CPU) Reset() {
 	cpu.cycles = 0x6
 }
 
+func (cpu *CPU) Run() {
+	for {
+		select {
+		case isNMI := <-cpu.irqCh:
+			if isNMI {
+				cpu.NMI()
+			} else {
+				cpu.IRQ()
+			}
+		case <-cpu.clock.CPU:
+			// cpu.clock.CIA1 <- true
+			// cpu.clock.CIA2 <- true
+			cpu.cycles--
+			if cpu.cycles == 0 {
+				cpu.step()
+			}
+		}
+	}
+}
+
 var CPU_DEBUG_PRINT = 0
 
-func (cpu *CPU) Step() {
+func (cpu *CPU) step() {
 	if cpu.pc == 0xe5d4 {
 		CPU_DEBUG_PRINT = 1
 	}
@@ -75,15 +102,14 @@ func (cpu *CPU) Step() {
 		cpu.logger.Debug(`PC-1|   OP    |A |X |Y |P NV.BDIZC|SP|SD| `)
 	}
 	if CPU_DEBUG_PRINT == 2 {
-		cpu.logger.Debug(fmt.Sprintf("%04x|%s%02x%02x%02x|%02x|%02x|%02x|%02x%08b|%02x|%02x| ", cpu.pc-1, runtime.FuncForPC(reflect.ValueOf(instruction.fn).Pointer()).Name()[36:39], cpu.mem.Read(cpu.pc-1), cpu.mem.Read(cpu.pc), cpu.mem.Read(cpu.pc+1), cpu.a, cpu.x, cpu.y, cpu.p, cpu.p, cpu.sp, cpu.mem.ram[StackLow+uint16(cpu.sp)+1]))
+		cpu.logger.Debug(fmt.Sprintf("%04x|%s%02x%02x%02x|%02x|%02x|%02x|%02x%08b|%02x|%02x| ", cpu.pc-1, runtime.FuncForPC(reflect.ValueOf(instruction.fn).Pointer()).Name()[36:39], cpu.mem.Read(cpu.pc-1), cpu.mem.Read(cpu.pc), cpu.mem.Read(cpu.pc+1), cpu.a, cpu.x, cpu.y, cpu.p, cpu.p, cpu.sp, cpu.mem.Read(StackLow+uint16(cpu.sp)+1)))
 	}
 	if !exist {
 		cpu.logger.Error("Instruction Unsupported", "instruction", instruction)
+		panic(1)
 	}
-	if err := instruction.fn(cpu, instruction.mode); err != nil {
-		cpu.logger.Error("Instruction Failed", "instruction", instruction)
-	}
-	cpu.cycles += uint64(instruction.cycles)
+	instruction.fn(cpu, instruction.mode)
+	cpu.cycles += instruction.cycles
 }
 
 func (cpu *CPU) IRQ() {

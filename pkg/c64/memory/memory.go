@@ -1,10 +1,12 @@
-package c64
+package memory
 
 import (
 	"fmt"
 	"io/ioutil"
 	"log/slog"
 	"os"
+
+	"github.com/jejer/commando64/pkg/c64"
 )
 
 const (
@@ -34,11 +36,6 @@ const (
 	CartHi2StartPage  uint16 = 0xe000
 	CartHi2EndPage    uint16 = 0xff00
 
-	// roms
-	BasicRomAddr  uint16 = 0xa000
-	KernalRomAddr uint16 = 0xe000
-	CharsRomAddr  uint16 = 0xd000
-
 	// banking switching
 	LORAM  byte = 1 << 0 // BIT0: Configures RAM or ROM at $A000-$BFFF for basic rom
 	HIRAM  byte = 1 << 1 // BIT1: Configures RAM or ROM at $E000-$FFFF for kernal rom
@@ -54,39 +51,26 @@ const BandModeIO BandMode = 0
 const BandModeRAM BandMode = 1
 const BandModeROM BandMode = 2
 
-type Memory interface {
-	Read(addr uint16) byte
-	Write(addr uint16, v byte)
+type C64MemoryBus struct {
+	ram    [65536]byte
+	rom    [65536]byte
+	cia1   c64.BasicIO
+	cia2   c64.BasicIO
+	vic    c64.BasicIO
+	logger slog.Logger
 }
 
-type C64MemoryMap struct {
-	console *Console
-	ram     [65536]byte
-	rom     [65536]byte
-	logger  slog.Logger
-}
-
-func NewC64Memory(c *Console, logger slog.Logger) *C64MemoryMap {
-	m := &C64MemoryMap{console: c}
+func NewC64Memory(logger slog.Logger, cia1, cia2, vic c64.BasicIO) *C64MemoryBus {
+	m := &C64MemoryBus{cia1: cia1, cia2: cia2, vic: vic}
 	m.logger = *logger.With("Component", "Memory")
 	return m
 }
 
-func (m *C64MemoryMap) Write(addr uint16, v byte) {
-	// page := addr & 0xff00
-	// switch {
-	// case page == ZeroPage:
-	// 	m.ram[addr] = v
-	// 	// log ROM bank switching
-	// 	if CpuPortRegister == addr {
-	// 		m.RomBankSwitch(v)
-	// 	}
-	// 	return
-	// default:
-	// 	// C64 always write to RAM even ROM is mounted.
-	// 	m.ram[addr] = v
-	// }
+func (m *C64MemoryBus) SetVIC(vic c64.BasicIO) {
+	m.vic = vic
+}
 
+func (m *C64MemoryBus) Write(addr uint16, v byte) {
 	if CpuPortRegister == addr {
 		m.ram[addr] = v
 		m.RomBankSwitch(v)
@@ -98,11 +82,11 @@ func (m *C64MemoryMap) Write(addr uint16, v byte) {
 		page := addr & 0xff00
 		switch {
 		case page >= VICStartPage && page <= VICEndPage:
-			m.console.VIC.Write(addr, v)
+			m.vic.Write(addr, v)
 		case page == CIA1Page:
-			m.console.CIA1.Write(addr, v)
+			m.cia1.Write(addr, v)
 		case page == CIA2Page:
-			m.console.CIA2.Write(addr, v)
+			m.cia2.Write(addr, v)
 		default:
 			m.ram[addr] = v
 		}
@@ -112,7 +96,7 @@ func (m *C64MemoryMap) Write(addr uint16, v byte) {
 	}
 }
 
-func (m *C64MemoryMap) Read(addr uint16) byte {
+func (m *C64MemoryBus) Read(addr uint16) byte {
 	switch m.GetAddrBandMode(addr) {
 	case BandModeROM:
 		return m.rom[addr]
@@ -120,43 +104,35 @@ func (m *C64MemoryMap) Read(addr uint16) byte {
 		page := addr & 0xff00
 		switch {
 		case page >= VICStartPage && page <= VICEndPage:
-			return m.console.VIC.Read(addr)
+			return m.vic.Read(addr)
 		case page == CIA1Page:
-			return m.console.CIA1.Read(addr)
+			return m.cia1.Read(addr)
 		case page == CIA2Page:
-			return m.console.CIA2.Read(addr)
+			return m.cia2.Read(addr)
 		default:
 			return m.ram[addr]
 		}
 	default:
 		return m.ram[addr]
 	}
-	// page := addr & 0xff00
-	// switch {
-	// case page >= CharStartPage && page <= CharEndPage:
-	// 	switch m.GetAddrBandMode(addr) {
-	// 	case BandModeROM:
-	// 		return m.rom[addr]
-	// 	default:
-	// 		return m.ram[addr]
-	// 	}
-	// default:
-	// 	return m.ram[addr]
-	// }
 }
 
-func (m *C64MemoryMap) ReadWord(addr uint16) uint16 {
+func (m *C64MemoryBus) ReadRom(addr uint16) byte {
+	return m.rom[addr]
+}
+
+func (m *C64MemoryBus) ReadWord(addr uint16) uint16 {
 	return uint16(m.Read(addr)) | (uint16(m.Read(addr+1)) << 8)
 }
 
 // https://web.archive.org/web/20230527235630/https://www.c64-wiki.com/wiki/Zeropage
-func (m *C64MemoryMap) RomBankSwitch(v byte) {
+func (m *C64MemoryBus) RomBankSwitch(v byte) {
 	if v != m.ram[CpuPortRegister] {
 		m.logger.Info("RomBankSwitch", "data", fmt.Sprintf("%08b", v))
 	}
 }
 
-func (m *C64MemoryMap) LoadRom(path string, addr uint16, ram bool) error {
+func (m *C64MemoryBus) LoadRom(path string, addr uint16, ram bool) error {
 	file, err := os.Open(path)
 	if err != nil {
 		m.logger.Error("LoadRom Can't open file", "path", path, "addr", fmt.Sprintf("%08x", addr), "err", err)
@@ -179,7 +155,7 @@ func (m *C64MemoryMap) LoadRom(path string, addr uint16, ram bool) error {
 	return nil
 }
 
-func (m *C64MemoryMap) GetAddrBandMode(addr uint16) BandMode {
+func (m *C64MemoryBus) GetAddrBandMode(addr uint16) BandMode {
 	// https://web.archive.org/web/20230714080427/https://www.c64-wiki.com/wiki/Bank_Switching
 	// https://web.archive.org/web/20201029042742/http://unusedino.de/ec64/technical/aay/c64/memcfg.htm
 	//      Bit+-------------+-----------+------------+
@@ -226,4 +202,20 @@ func (m *C64MemoryMap) GetAddrBandMode(addr uint16) BandMode {
 		return BandModeRAM
 	}
 	return BandModeRAM
+}
+
+func (m *C64MemoryBus) VicRead(addr uint16) uint8 {
+	// %00, 0: Bank 3: $C000-$FFFF, 49152-65535
+	// %01, 1: Bank 2: $8000-$BFFF, 32768-49151
+	// %10, 2: Bank 1: $4000-$7FFF, 16384-32767
+	// %11, 3: Bank 0: $0000-$3FFF, 0-16383 (standard)
+	band := m.cia2.Read(0xdd00)
+	base := uint16((^band)&0x03) << 14
+
+	addr = base + (addr & 0x3fff)
+	// character rom hard linked for band3 and band1
+	if (addr >= 0x1000 && addr < 0x2000) || (addr >= 0x9000 && addr < 0xa000) {
+		return m.ReadRom(c64.CharsRomAddr + (addr & 0x0fff))
+	}
+	return m.Read(addr)
 }
