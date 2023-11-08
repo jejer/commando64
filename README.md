@@ -1,6 +1,7 @@
 # commando64
-Go C64 emulator
+A WIP C64 emulator written in Go
 
+![screenshot](docs/Screenshot%202023-11-05%20at%209.44.57%20PM.png "Screenshot")
 
 # references
 - http://unusedino.de/ec64/technical/aay/c64/

@@ -2,6 +2,7 @@ package cia
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/jejer/commando64/pkg/c64"
 	"github.com/jejer/commando64/pkg/c64/clock"
@@ -168,8 +169,9 @@ func (cia1 *CIA1) Read(addr uint16) uint8 {
 }
 
 func (cia1 *CIA1) Run() {
-	for {
-		<-cia1.clock.CIA1
+	d := time.Duration(time.Second) / (50 * c64.ScreenLines * 63)
+	t := time.NewTicker(d)
+	for range t.C {
 		cia1.step()
 	}
 }

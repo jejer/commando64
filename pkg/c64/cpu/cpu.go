@@ -47,7 +47,7 @@ type CPU struct {
 	pc         uint16
 	a, x, y, p uint8 // registers
 	sp         uint8 // stack pointer
-	cycles     uint8
+	cycles     int
 	irqCh      <-chan bool
 }
 
@@ -78,11 +78,9 @@ func (cpu *CPU) Run() {
 			} else {
 				cpu.IRQ()
 			}
-		case <-cpu.clock.CPU:
-			// cpu.clock.CIA1 <- true
-			// cpu.clock.CIA2 <- true
-			cpu.cycles--
-			if cpu.cycles == 0 {
+		case q := <-cpu.clock.CPU:
+			cpu.cycles -= q
+			for cpu.cycles <= 0 {
 				cpu.step()
 			}
 		}
@@ -109,7 +107,7 @@ func (cpu *CPU) step() {
 		panic(1)
 	}
 	instruction.fn(cpu, instruction.mode)
-	cpu.cycles += instruction.cycles
+	cpu.cycles += int(instruction.cycles)
 }
 
 func (cpu *CPU) IRQ() {

@@ -45,7 +45,7 @@ func main() {
 	go cia2.Run()
 	go cpu.Run()
 	go vic.Run()
-	go clock.Run()
+	// go clock.Run()
 
 	peripheral.EventLoop()
 }

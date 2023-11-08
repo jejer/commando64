@@ -3,6 +3,7 @@ package vic
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jejer/commando64/pkg/c64"
 	"github.com/jejer/commando64/pkg/c64/clock"
@@ -102,6 +103,10 @@ type VICII struct {
 	bitmapMemOffset uint16
 
 	rasterIrqRequest uint16
+
+	frame         int
+	lastFrame     int
+	lastFrameTime time.Time
 }
 
 func NewVICII(logger slog.Logger, clock *clock.Clock, m c64.MemoryBus, ch chan<- bool, io c64.PeripheralIO) *VICII {
@@ -221,21 +226,26 @@ func (vic *VICII) Read(addr uint16) uint8 {
 }
 
 func (vic *VICII) Run() {
-	for {
-		<-vic.clock.VIC
-		vic.cpuCycle--
-		if vic.cpuCycle >= 0 {
-			vic.clock.CPU <- true
+	d := time.Duration(time.Second) / (50 * ScreenLines)
+	t := time.NewTicker(d)
+	for range t.C {
+		now := time.Now()
+		isBadLine := vic.step()
+		if isBadLine {
+			vic.clock.CPU <- BadLineCycles
+		} else {
+			vic.clock.CPU <- LineCycles
 		}
-		vic.cycle--
-		if vic.cycle == 0 {
-			vic.step()
+		if now.After(vic.lastFrameTime.Add(time.Duration(time.Second * 10))) {
+			vic.logger.Info("FPS", "FPS", (vic.frame-vic.lastFrame)/10)
+			vic.lastFrame = vic.frame
+			vic.lastFrameTime = now
 		}
 	}
 }
 
 // a step is a raster line
-func (vic *VICII) step() {
+func (vic *VICII) step() bool {
 	if vic.interruptStatus&0x80 != 0 {
 		// interrupts are not handled by CPU
 		go func() { vic.irqCh <- false }()
@@ -264,22 +274,28 @@ func (vic *VICII) step() {
 	}
 
 	// update next cycle
-	vic.cycle = LineCycles
-	if vic.isBadLine(line) {
-		vic.cpuCycle = BadLineCycles
-	} else {
-		vic.cpuCycle = LineCycles
-	}
+	isBadLine := vic.isBadLine(line)
+	// vic.cycle = LineCycles
+	// if vic.isBadLine(line) {
+	// 	vic.cpuCycle = BadLineCycles
+	// } else {
+	// 	vic.cpuCycle = LineCycles
+	// }
 
 	// update raster
+	// vic.logger.Info("raster line", "line", line)
 	line++
 	if line == ScreenLines {
 		line = 0
 		vic.peripheralIO.RefreshScreen()
+		// vic.logger.Info("frame", "frame", vic.frame)
+		vic.frame++
 	}
 	vic.rasterPos = uint8(line & 0x00ff)
 	vic.control1 &= 0x7f
 	vic.control1 |= uint8((line >> 1) & 0x80)
+
+	return isBadLine
 }
 
 func (vic *VICII) setGraphicMode() {

@@ -71,6 +71,9 @@ func (m *C64MemoryBus) SetVIC(vic c64.BasicIO) {
 }
 
 func (m *C64MemoryBus) Write(addr uint16, v byte) {
+	if addr == 0x04f0 && m.ram[0x0f0] != v {
+		m.logger.Info("0x04f0", "prev", m.ram[0x0f0], "new", v)
+	}
 	if CpuPortRegister == addr {
 		m.ram[addr] = v
 		m.RomBankSwitch(v)
